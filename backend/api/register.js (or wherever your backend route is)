@@ -1,0 +1,11 @@
+app.post('/api/register', async (req, res) => {
+  console.log("REGISTER BODY:", req.body); // <-- Add this for debugging
+
+  const { firstName, lastName, username, email, password } = req.body;
+
+  if (!username) {
+    return res.status(400).json({ success: false, message: "Username is required" });
+  }
+
+  // ...rest of your registration logic...
+}); 
