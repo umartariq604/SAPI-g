@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/secureapi
+    depends_on:
+      - mongodb
+    volumes:
+      - ./backend:/app
+      - /app/venv
+
+  frontend:
+    build:
+      context: ./secureapi-dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    environment:
+      - REACT_APP_API_URL=http://backend:5000
+    depends_on:
+      - backend
+    volumes:
+      - ./secureapi-dashboard:/app
+      - /app/node_modules
+
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+
+volumes:
+  mongodb_data: 
