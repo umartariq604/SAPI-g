@@ -1,21 +1,11 @@
-// Configuration for local development
-const DEV_MODE = true; // Set to false to use IP address for testing on other devices
+// Prefer build-time environment variables, fallback to current host
+const envApiUrl = process.env.REACT_APP_API_URL;
+const envSocketUrl = process.env.REACT_APP_SOCKET_URL;
 
-// Get the local IP address
-const getLocalIP = () => {
-  // Replace this with your actual local IP address
-  // You can find it by running:
-  // - On macOS/Linux: ifconfig | grep "inet " | grep -v 127.0.0.1
-  // - On Windows: ipconfig | findstr IPv4
-  return DEV_MODE ? 'localhost' : '10.1.57.226'; // Switch between localhost and IP
-};
+const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+const protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:';
 
-const LOCAL_IP = getLocalIP();
-const API_URL = `http://${LOCAL_IP}:5001`;
-const SOCKET_URL = `http://${LOCAL_IP}:5001`;
+const API_URL = envApiUrl || `${protocol}//${host}:5001`;
+const SOCKET_URL = envSocketUrl || `${protocol}//${host}:5001`;
 
-// Log the current configuration
-console.log(`Using ${DEV_MODE ? 'localhost' : 'IP address'} for API connections`);
-console.log(`API_URL: ${API_URL}`);
-
-export { API_URL, SOCKET_URL }; 
+export { API_URL, SOCKET_URL };
