@@ -294,6 +294,7 @@ app.post('/api/register', async (req, res) => {
             threatType: mappedThreatType, 
             confidence: aiResult.confidence,
             status: 'blocked',
+            detectedAt: new Date(),
             details: {
               confidence: aiResult.confidence,
               timestamp: new Date()
@@ -557,7 +558,8 @@ app.get('/api/stats/traffic', async (req, res) => {
             };
             labelFormat = t => (t.getUTCMonth() + 1) + '/' + t.getUTCDate();
             numPoints = 30;
-        } else { // 'hour' (default)
+        } else {
+            // Default to hour
             start = new Date(now.getTime() - 60 * 60 * 1000);
             group = {
                 year: { $year: "$timestamp" },
@@ -570,25 +572,68 @@ app.get('/api/stats/traffic', async (req, res) => {
             numPoints = 60;
         }
 
-        // Total pipeline
+        // Pipeline for total requests
         const totalPipeline = [
-            { $match: { timestamp: { $gte: start } } },
-            { $group: { _id: group, count: { $sum: 1 } } },
-            { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1, '_id.hour': 1, '_id.minute': 1 } }
+            {
+                $match: {
+                    timestamp: { $gte: start }
+                }
+            },
+            {
+                $group: {
+                    _id: {
+                        year: { $year: { date: "$timestamp", timezone: "UTC" } },
+                        month: { $month: { date: "$timestamp", timezone: "UTC" } },
+                        day: { $dayOfMonth: { date: "$timestamp", timezone: "UTC" } },
+                        hour: { $hour: { date: "$timestamp", timezone: "UTC" } },
+                        minute: { $minute: { date: "$timestamp", timezone: "UTC" } }
+                    },
+                    count: { $sum: 1 }
+                }
+            }
         ];
 
-        // Detected threats pipeline (all non-BENIGN)
+        // Pipeline for detected threats
         const detectedPipeline = [
-            { $match: { detectedAt: { $gte: start }, threatType: { $ne: 'BENIGN' } } },
-            { $group: { _id: group, count: { $sum: 1 } } },
-            { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1, '_id.hour': 1, '_id.minute': 1 } }
+            {
+                $match: {
+                    detectedAt: { $gte: start }
+                }
+            },
+            {
+                $group: {
+                    _id: {
+                        year: { $year: { date: "$detectedAt", timezone: "UTC" } },
+                        month: { $month: { date: "$detectedAt", timezone: "UTC" } },
+                        day: { $dayOfMonth: { date: "$detectedAt", timezone: "UTC" } },
+                        hour: { $hour: { date: "$detectedAt", timezone: "UTC" } },
+                        minute: { $minute: { date: "$detectedAt", timezone: "UTC" } }
+                    },
+                    count: { $sum: 1 }
+                }
+            }
         ];
 
-        // Blocked threats pipeline (status: 'blocked')
+        // Pipeline for blocked threats
         const blockedPipeline = [
-            { $match: { detectedAt: { $gte: start }, status: 'blocked' } },
-            { $group: { _id: group, count: { $sum: 1 } } },
-            { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1, '_id.hour': 1, '_id.minute': 1 } }
+            {
+                $match: {
+                    detectedAt: { $gte: start },
+                    status: 'blocked'
+                }
+            },
+            {
+                $group: {
+                    _id: {
+                        year: { $year: { date: "$detectedAt", timezone: "UTC" } },
+                        month: { $month: { date: "$detectedAt", timezone: "UTC" } },
+                        day: { $dayOfMonth: { date: "$detectedAt", timezone: "UTC" } },
+                        hour: { $hour: { date: "$detectedAt", timezone: "UTC" } },
+                        minute: { $minute: { date: "$detectedAt", timezone: "UTC" } }
+                    },
+                    count: { $sum: 1 }
+                }
+            }
         ];
 
         const [totalResults, detectedResults, blockedResults] = await Promise.all([
@@ -685,42 +730,40 @@ app.get('/api/stats/traffic', async (req, res) => {
 });
 
 // Configure Passport
-passport.use(new GoogleStrategy({
-    clientID: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: "/auth/google/callback"
-  },
-  async (accessToken, refreshToken, profile, done) => {
-    try {
-      // Check if user already exists
-      let user = await User.findOne({ googleId: profile.id });
-      
-      if (!user) {
-        // Check if user exists with the same email but no googleId
-        user = await User.findOne({ email: profile.emails[0].value });
-        
-        if (user) {
-          // Update existing user with googleId
-          user.googleId = profile.id;
-          await user.save();
-        } else {
-          // Create new user
-          user = await User.create({
-            googleId: profile.id,
-            email: profile.emails[0].value,
-            firstName: profile.name.givenName,
-            lastName: profile.name.familyName,
-            role: 'user'
-          });
+const hasGoogleCreds = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+if (hasGoogleCreds) {
+  passport.use(new GoogleStrategy({
+      clientID: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      callbackURL: "/auth/google/callback"
+    },
+    async (accessToken, refreshToken, profile, done) => {
+      try {
+        let user = await User.findOne({ googleId: profile.id });
+        if (!user) {
+          user = await User.findOne({ email: profile.emails[0].value });
+          if (user) {
+            user.googleId = profile.id;
+            await user.save();
+          } else {
+            user = await User.create({
+              googleId: profile.id,
+              email: profile.emails[0].value,
+              firstName: profile.name.givenName,
+              lastName: profile.name.familyName,
+              role: 'user'
+            });
+          }
         }
+        return done(null, user);
+      } catch (error) {
+        return done(error, null);
       }
-      
-      return done(null, user);
-    } catch (error) {
-      return done(error, null);
     }
-  }
-));
+  ));
+} else {
+  console.warn("Google OAuth disabled: missing GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET");
+}
 
 // Serialize user for the session
 passport.serializeUser((user, done) => {
@@ -741,32 +784,34 @@ passport.deserializeUser(async (id, done) => {
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Google OAuth Routes
-app.get('/auth/google',
-  passport.authenticate('google', { 
-    scope: ['profile', 'email'],
-    prompt: 'select_account'
-  })
-);
-
-app.get('/auth/google/callback',
-  passport.authenticate('google', { failureRedirect: '/login' }),
-  (req, res) => {
-    // Successful authentication, generate JWT
-    const token = jwt.sign(
-      { 
-        id: req.user._id, 
-        email: req.user.email, 
-        role: req.user.role 
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: '1h' }
-    );
-    
-    // Redirect to frontend with token
-    res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${token}`);
-  }
-);
+// Google OAuth Routes (only if enabled)
+if (hasGoogleCreds) {
+  app.get('/auth/google',
+    passport.authenticate('google', { 
+      scope: ['profile', 'email'],
+      prompt: 'select_account'
+    })
+  );
+  
+  app.get('/auth/google/callback',
+    passport.authenticate('google', { failureRedirect: '/login' }),
+    (req, res) => {
+      const token = jwt.sign(
+        { 
+          id: req.user._id, 
+          email: req.user.email, 
+          role: req.user.role 
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: '1h' }
+      );
+      res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${token}`);
+    }
+  );
+} else {
+  app.get('/auth/google', (_req, res) => res.status(503).json({ message: 'Google OAuth not configured' }));
+  app.get('/auth/google/callback', (_req, res) => res.status(503).json({ message: 'Google OAuth not configured' }));
+}
 
 // ✅ MongoDB Connection
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/secureapi', {
@@ -812,5 +857,38 @@ app.get('/api/users', authenticateJWT, authorizeRole('admin'), async (req, res) 
     }
 });
 
-httpServer.listen(PORT, '0.0.0.0', () => console.log(`API Gateway running on port ${PORT}`));
+// ✅ Get blacklisted IPs
+app.get('/api/blacklist', authenticateJWT, async (req, res) => {
+    try {
+        const blacklistedIps = await BlacklistedIp.find()
+            .sort({ createdAt: -1 })
+            .select('ip reason createdAt');
+        res.json({ blacklistedIps });
+    } catch (err) {
+        console.error("Error fetching blacklisted IPs:", err);
+        res.status(500).json({ message: "Failed to fetch blacklisted IPs" });
+    }
+});
+
+// Listen on all network interfaces
+httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`API Gateway running on port ${PORT}`);
+    console.log(`Local: http://localhost:${PORT}`);
+    console.log(`Network: http://${getLocalIP()}:${PORT}`);
+});
+
+// Helper function to get local IP
+function getLocalIP() {
+    const { networkInterfaces } = require('os');
+    const nets = networkInterfaces();
+    for (const name of Object.keys(nets)) {
+        for (const net of nets[name]) {
+            // Skip over non-IPv4 and internal (i.e. 127.0.0.1) addresses
+            if (net.family === 'IPv4' && !net.internal) {
+                return net.address;
+            }
+        }
+    }
+    return 'localhost';
+}
 
