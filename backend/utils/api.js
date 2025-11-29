@@ -1,6 +1,7 @@
 const fetch = require('node-fetch');
 
 const sendFeaturesToAI = async (features) => {
+    const aiBaseUrl = process.env.AI_URL || 'http://localhost:5002';
     // Convert features array to request object format
     const requestData = {
         email: features[0],  // email_length
