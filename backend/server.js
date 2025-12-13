@@ -231,6 +231,7 @@ app.post('/api/register', async (req, res) => {
 
       console.log("Sending response:", JSON.stringify(userResponse, null, 2));
       res.status(201).json({ 
+        success: true,
         message: "User registered successfully",
         user: userResponse
       });
